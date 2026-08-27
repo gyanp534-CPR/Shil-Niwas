@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Floor {
+  GROUND
+  FIRST
+  SECOND
+}
+
+enum UnitType {
+  BHK_2
+  BHK_1
+  SHOP
+  OWNER_FLAT
+}
+
+enum UnitStatus {
+  OCCUPIED
+  VACANT
+}
+
+enum AgreementStatus {
+  DRAFT
+  ACTIVE
+  NOTICE_SERVED
+  VACATING
+  CLOSED
+}
+
+enum VerificationStatus {
+  NOT_STARTED
+  SUBMITTED
+  VERIFIED
+}
+
+model Unit {
+  id          String     @id @default(cuid())
+  code        String     @unique // e.g. "GF-SHOP-SABJI", "2F-2BHK-A", "1F-OWNER"
+  floor       Floor
+  type        UnitType
+  label       String     // display name, e.g. "Sabji dukan", "2BHK - A"
+  status      UnitStatus @default(VACANT)
+  areaSqft    Int?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  tenants           Tenant[]
+  agreements        Agreement[]
+  electricityCycles ElectricityCycle[]
+  maintenanceTickets MaintenanceTicket[]
+}
+
+model Tenant {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String
+  email           String?
+  permanentAddress String?
+  idProofType     String?  // Aadhaar / PAN / etc.
+  idProofNumber   String?
+  photoUrl        String?
+  isCommercial    Boolean  @default(false)
+  businessName    String?  // for shops
+  businessLicense String?  // shop license / GST if applicable
+
+  verificationStatus VerificationStatus @default(NOT_STARTED)
+  verificationRef     String?            // police portal acknowledgment number
+
+  unitId   String
+  unit     Unit     @relation(fields: [unitId], references: [id])
+
+  agreements    Agreement[]
+  rentPayments  RentPayment[]
+  sessions      TenantSession[]
+  maintenanceTickets MaintenanceTicket[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  consumed  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model TenantSession {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Agreement {
+  id              String          @id @default(cuid())
+  unitId          String
+  unit            Unit            @relation(fields: [unitId], references: [id])
+  tenantId        String
+  tenant          Tenant          @relation(fields: [tenantId], references: [id])
+
+  status          AgreementStatus @default(DRAFT)
+  startDate       DateTime
+  endDate         DateTime
+  monthlyRent     Int
+  securityDeposit Int
+  rentDueDay      Int             @default(5) // day of month rent is due
+  noticePeriodDays Int            @default(30)
+  registrationStatus String?      // "Registered" / "Notarized" / "Unregistered"
+  documentUrl     String?         // signed agreement PDF
+
+  moveInPhotos    ConditionPhoto[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model ConditionPhoto {
+  id          String    @id @default(cuid())
+  agreementId String
+  agreement   Agreement @relation(fields: [agreementId], references: [id])
+  url         String
+  caption     String?
+  takenAt     DateTime  @default(now())
+}
+
+model ElectricityCycle {
+  id               String   @id @default(cuid())
+  unitId           String
+  unit             Unit     @relation(fields: [unitId], references: [id])
+  cycleDate        DateTime @default(now())
+  previousReading  Int
+  currentReading   Int
+  unitsConsumed    Int      // currentReading - previousReading
+  ratePerUnit      Float
+  totalAmount      Float    // unitsConsumed * ratePerUnit
+  isPaid           Boolean  @default(false)
+  sentToTenant     Boolean  @default(false)
+  createdAt        DateTime @default(now())
+}
+
+model RentPayment {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id])
+  dueDate            DateTime
+  amount             Int
+  paidAmount         Int       @default(0)
+  paidAt             DateTime?
+  isPaid             Boolean   @default(false)
+  lastReminderSentAt DateTime?
+  createdAt          DateTime  @default(now())
+}
+
+model MaintenanceTicket {
+  id          String   @id @default(cuid())
+  unitId      String
+  unit        Unit     @relation(fields: [unitId], references: [id])
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id])
+  title       String
+  description String?
+  status      String   @default("OPEN") // OPEN / IN_PROGRESS / RESOLVED
+  costBorneBy String?  // "OWNER" / "TENANT"
+  cost        Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
